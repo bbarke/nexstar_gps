@@ -1,18 +1,25 @@
 #include <TinyGPS++.h>
 #include <SoftwareSerial.h>
-// #include <Arduino.h>
 
 #include "define.h"
 
 #define RXPIN 3
 #define TXPIN 2
 
+const int LED_COMM_ACTIVE = LED_BUILTIN;   // =13
+const int LED_GPS_STATE = 12;
+
 TinyGPSPlus gps;
 SoftwareSerial ss(RXPIN, TXPIN);
 
 TinyGPSCustom satellitesInView(gps, "GPGSV", 3);
-TinyGPSCustom fix3D(gps, "GPGSA", 2);    // 1 = no fix, 2 = 2D fix, 3 = 3D fix
 TinyGPSCustom fixQuality(gps, "GPGGA", 6);  // 0 = invalid, 1 = GPS, 2 = DGPS, etc...
+int fixQualityInt;
+
+// For more details how convert GPS position into 24 bit format,
+// see "NexStar Communication Protocol", section "GPS Commands".
+// https://www.nexstarsite.com/download/manuals/NexStarCommunicationProtocolV1.2.zip
+const double GPS_MULT_FACTOR = 46603.37778;  // = 2^24 / 360
 
 #define PK_MAX_LEN 12
 unsigned char packet[PK_MAX_LEN];   // Is 12 enough? What is the largest expected packet?
@@ -22,12 +29,21 @@ int pklen;
 int pkidx;
 int16_t cksum_accumulator;
 
+int ledStateGps = LOW;
+int ledStateCommActive = LOW;
+unsigned long previousMillis = 0;
+long blink_interval = 0;
+
 void setup() {
   // put your setup code here, to run once:
   pkstate = PREAMBLE_WAIT;
   pklen = 0;
   pkidx = 0;
-  Serial.begin(9600);
+
+  Serial.begin(19200, SERIAL_8N2);
+  ss.begin(9600);
+  pinMode(LED_GPS_STATE, OUTPUT);
+  pinMode(LED_COMM_ACTIVE, OUTPUT);
 }
 
 void loop() {
@@ -41,64 +57,100 @@ void loop() {
   while (Serial.available())
     packet_decode(Serial.read());
 
+  fixQualityInt = getGpsQuality(fixQuality.value());
+
+  // GPS quality LED indication
+  if (fixQualityInt > 0) {
+    // GPS fixed
+    digitalWrite(LED_GPS_STATE, true);
+  } else {
+    if (fixQualityInt == -1) {
+      // data from GPS module missing, fast blinking
+      blink_interval = 50;
+    } else {
+      // GPS not fixed, slow blinking
+      blink_interval = 250;
+    }
+    unsigned long currentMillis = millis();
+
+    if (currentMillis - previousMillis >= blink_interval) {
+      // save the last time you blinked the LED
+      previousMillis = currentMillis;
+
+      ledChangeStateGps();
+    }
+  }
+
   // Check if packet is valid
   if (pkstate != VALID) return;
 
   // Check that destination is for me
   if (packet[2] != DEV_GPS) {
-    pkstate = 0;
+    pkstate = PREAMBLE_WAIT;
     pkidx = 0;
     pklen = 0;
     return;
   }
 
+  ledChangeStateCommActive();
+
   // It's for me! What's the command?
   uint8_t dest = packet[1];
-  switch(packet[3])
+  switch (packet[3])
   {
     case GPS_LINKED:
     case GPS_TIME_VALID:
-    if (fixQuality.value() > 0)
-      pk_send(dest, packet[3], 1);
-    else
-      pk_send(dest, packet[3], 0);
-    break;
+      if (fixQualityInt > 0)
+        pk_send(dest, packet[3], 1);
+      else
+        pk_send(dest, packet[3], 0);
+      break;
 
     case GPS_GET_TIME:
-    pk_send(dest, GPS_GET_TIME, gps.time.hour(), gps.time.minute(), gps.time.second());
-    break;
+      pk_send(dest, GPS_GET_TIME, gps.time.hour(), gps.time.minute(), gps.time.second());
+      break;
 
     case GPS_GET_HW_VER:
-    pk_send(dest, GPS_GET_HW_VER, GPS_HW_VER);
-    break;
+      pk_send(dest, GPS_GET_HW_VER, GPS_HW_VER);
+      break;
 
     case GPS_GET_YEAR:
-    pk_send(dest, GPS_GET_YEAR, gps.date.year() >> 8, gps.date.year() & 0xff);
-    break;
+      pk_send(dest, GPS_GET_YEAR, gps.date.year() >> 8, gps.date.year() & 0xff);
+      break;
 
     case GPS_GET_DATE:
-    pk_send(dest, GPS_GET_DATE, gps.date.month(), gps.date.day());
-    break;
+      pk_send(dest, GPS_GET_DATE, gps.date.month(), gps.date.day());
+      break;
 
-    case GPS_GET_LAT:
-    break;
+    case GPS_GET_LAT: {
+        int32_t lat = (int32_t) (gps.location.lat() * GPS_MULT_FACTOR);
+        uint8_t* latBytePtr = (uint8_t*)&lat;
+        pk_send(dest, GPS_GET_LAT, latBytePtr[2], latBytePtr[1], latBytePtr[0]);
+        break;
+      }
 
-    case GPS_GET_LONG:
-    break;
+    case GPS_GET_LONG: {
+        int32_t lng = (int32_t) (gps.location.lng() * GPS_MULT_FACTOR);
+        uint8_t* lngBytePtr = (uint8_t*)&lng;
+        pk_send(dest, GPS_GET_LONG, lngBytePtr[2], lngBytePtr[1], lngBytePtr[0]);
+        break;
+      }
 
-    case GPS_GET_SAT_INFO:
-    pk_send(dest, GPS_GET_SAT_INFO, satellitesInView.value(), gps.satellites.value());
-    break;
+    case GPS_GET_SAT_INFO: {
+        String satellitesInViewString(satellitesInView.value());
+        pk_send(dest, GPS_GET_SAT_INFO, satellitesInViewString.toInt(), gps.satellites.value());
+        break;
+      }
 
     case GPS_GET_RCVR_STATUS:
-    break;
+      break;
 
     case GPS_GET_COMPASS:
-    break;
+      break;
 
     case GPS_GET_VER:
-    pk_send(dest, GPS_GET_VER, 0, 1);  // Version 0.1
-    break;
+      pk_send(dest, GPS_GET_VER, 0, 1);  // Version 0.1
+      break;
   }
 
   pkstate = PREAMBLE_WAIT;
@@ -106,50 +158,56 @@ void loop() {
   pkidx = 0;
 }
 
+int getGpsQuality(const char* value) {
+  String quality(value);
+  if (quality.length() == 0) {
+    return -1;
+  } else {
+    return quality.toInt();
+  }
+}
+
 void packet_decode(int8_t c)
 {
-  Serial.write(c);
   switch (pkstate)
   {
     case PREAMBLE_WAIT:
-    if (c == 0x3b) {
-      pkstate = LENGTH_WAIT;
-    }
-    break;
+      if (c == 0x3b) {
+        pkstate = LENGTH_WAIT;
+      }
+      break;
 
     case LENGTH_WAIT:
-    if (c < PK_MAX_LEN) {
-      pklen = c;
-      packet[0] = c;
-      pkidx = 1;
-      pkstate = DATA;
-    }
-    else
-      pkstate = PREAMBLE_WAIT;
-    break;
+      if (c < PK_MAX_LEN) {
+        pklen = c;
+        packet[0] = c;
+        pkidx = 1;
+        pkstate = DATA;
+      }
+      else
+        pkstate = PREAMBLE_WAIT;
+      break;
 
     case DATA:
-    packet[pkidx] = c;
-    pkidx++;
-    if (pkidx == pklen + 1)
-      pkstate = CKSUM;
-    break;
+      packet[pkidx] = c;
+      pkidx++;
+      if (pkidx == pklen + 1)
+        pkstate = CKSUM;
+      break;
 
     case CKSUM:
-    if (pk_checksum(c))
-      pkstate = VALID;
-    else
-      pkstate = PREAMBLE_WAIT;
-    break;
+      if (pk_checksum(c))
+        pkstate = VALID;
+      else
+        pkstate = PREAMBLE_WAIT;
+      break;
   }
-  Serial.write(pkstate);
 }
 
 bool pk_checksum(int8_t target)
 {
   int sum = 0;
   for (int i = 0; i <= pklen; i++) sum += packet[i];
-  Serial.write(sum & 0xff);
   int8_t chk = (-sum) & 0xff;
   return (target == chk);
 }
@@ -172,6 +230,7 @@ inline int8_t cksum_final()
 // Send a 1-byte response
 void pk_send(uint8_t dest, uint8_t id, uint8_t byte0)
 {
+  delayMicroseconds(500);
   cksum_init();
   // Send preamble
   Serial.write(0x3b);
@@ -197,6 +256,7 @@ void pk_send(uint8_t dest, uint8_t id, uint8_t byte0)
 // Send a 2-byte response
 void pk_send(uint8_t dest, uint8_t id, uint8_t byte0, uint8_t byte1)
 {
+  delayMicroseconds(500);
   cksum_init();
   // Send preamble
   Serial.write(0x3b);
@@ -225,6 +285,7 @@ void pk_send(uint8_t dest, uint8_t id, uint8_t byte0, uint8_t byte1)
 // Send a 3-byte response
 void pk_send(uint8_t dest, uint8_t id, uint8_t byte0, uint8_t byte1, uint8_t byte2)
 {
+  delayMicroseconds(500);
   cksum_init();
   // Send preamble
   Serial.write(0x3b);
@@ -253,3 +314,20 @@ void pk_send(uint8_t dest, uint8_t id, uint8_t byte0, uint8_t byte1, uint8_t byt
   Serial.write(cksum_final());
 }
 
+void ledChangeStateGps() {
+  if (ledStateGps == LOW) {
+    ledStateGps = HIGH;
+  } else {
+    ledStateGps = LOW;
+  }
+  digitalWrite(LED_GPS_STATE, ledStateGps);
+}
+
+void ledChangeStateCommActive() {
+  if (ledStateCommActive == LOW) {
+    ledStateCommActive = HIGH;
+  } else {
+    ledStateCommActive = LOW;
+  }
+  digitalWrite(LED_COMM_ACTIVE, ledStateCommActive);
+}
