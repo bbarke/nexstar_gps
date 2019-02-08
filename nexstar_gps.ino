@@ -61,14 +61,14 @@ void loop() {
 
   // GPS quality LED indication
   if (fixQualityInt > 0) {
-    // GPS fixed
+    // GPS fixed, LED lights continuously
     digitalWrite(LED_GPS_STATE, true);
   } else {
     if (fixQualityInt == -1) {
-      // data from GPS module missing, fast blinking
+      // data from GPS module missing, LED fast blinking
       blink_interval = 50;
     } else {
-      // GPS not fixed, slow blinking
+      // GPS not fixed, LED slow blinking
       blink_interval = 250;
     }
     unsigned long currentMillis = millis();
