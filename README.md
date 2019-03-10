@@ -41,5 +41,5 @@ http://www.paquettefamily.ca/nexstar/NexStar_AUX_Commands_10.pdf
 
 ## Attention
 
-Be attentive during construction and testing your device!!! You can easy destroy the motherboard in your astro mount
+Be attentive during construction and testing your device!!! You can easy destroy the motherboard in your astro mount.
 
