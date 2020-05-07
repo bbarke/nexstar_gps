@@ -1,25 +1,62 @@
 #include <TinyGPS++.h>
 #include <SoftwareSerial.h>
+#include <Arduino.h>
+#include <wiring_private.h> // cbi/sbi definition
+#include <util/atomic.h>
 
 #include "define.h"
 
-#define RXPIN 3
-#define TXPIN 2
+#define GPSRXPIN 2
+#define GPSTXPIN 3
 
-const int LED_COMM_ACTIVE = LED_BUILTIN;   // =13
-const int LED_GPS_STATE = 12;
+#define TXPIN 1
+#define DROPPIN 4
+
+#define LEDPIN 13
+
+// centralizing for debug.  Appears internal pullup is too much, at least on TX.
+#define TX_INPUT INPUT
+#define DROP_INPUT INPUT
+
+#if defined(UCSRB) && defined(UBRRL)
+  volatile uint8_t * const _ucsrb = &UCSRB;
+#else
+  volatile uint8_t * const _ucsrb = &UCSR0B;
+#endif
+
 
 TinyGPSPlus gps;
-SoftwareSerial ss(RXPIN, TXPIN);
+SoftwareSerial ss(GPSRXPIN, GPSTXPIN);
 
+/*
+ * Sample output from my BN-220 GNSS module.  Note the missing GPGGA/GPGSA replaced by GNGGA/GNGSA!
+ * 
+$GNGGA,192828.00,3028.88525,N,09750.20296,W,1,11,0.86,285.0,M,-24.0,M,,*7D
+$GNGSA,A,3,17,28,19,30,01,13,07,,,,,,1.59,0.86,1.33*1D
+$GNGSA,A,3,87,88,76,78,,,,,,,,,1.59,0.86,1.33*1F
+$GPGSV,4,1,15,01,23,044,16,02,02,206,,03,07,093,,06,27,191,15*7B
+$GPGSV,4,2,15,07,19,155,20,13,22,255,27,15,07,281,05,17,68,321,28*7D
+$GPGSV,4,3,15,19,55,269,33,22,06,068,18,24,02,322,,28,60,029,29*75
+$GPGSV,4,4,15,30,50,168,25,46,41,230,28,51,53,198,*4D
+$GLGSV,2,1,07,76,35,126,27,77,73,034,,78,27,331,17,81,08,217,*6D
+$GLGSV,2,2,07,86,12,030,,87,72,001,24,88,59,228,25*52
+$GNGLL,3028.88525,N,09750.20296,W,192828.00,A,A*62
+$GNRMC,192829.00,A,3028.88514,N,09750.20293,W,0.128,,010520,,,A*70
+$GNVTG,,T,,M,0.128,N,0.236,K,A*31
+*/
+
+// Changing these to use GNSS reports.  Should probably make it either/or 
 TinyGPSCustom satellitesInView(gps, "GPGSV", 3);
+TinyGPSCustom fix3D(gps, "GPGSA", 2);    // 1 = no fix, 2 = 2D fix, 3 = 3D fix
 TinyGPSCustom fixQuality(gps, "GPGGA", 6);  // 0 = invalid, 1 = GPS, 2 = DGPS, etc...
-int fixQualityInt;
+TinyGPSCustom fix3DGNSS(gps, "GNGSA", 2);    // 1 = no fix, 2 = 2D fix, 3 = 3D fix
+TinyGPSCustom fixQualityGNSS(gps, "GNGGA", 6);  // 0 = invalid, 1 = GPS, 2 = DGPS, etc...
 
 // For more details how convert GPS position into 24 bit format,
 // see "NexStar Communication Protocol", section "GPS Commands".
 // https://www.nexstarsite.com/download/manuals/NexStarCommunicationProtocolV1.2.zip
 const double GPS_MULT_FACTOR = 46603.37778;  // = 2^24 / 360
+
 
 #define PK_MAX_LEN 12
 unsigned char packet[PK_MAX_LEN];   // Is 12 enough? What is the largest expected packet?
@@ -29,21 +66,24 @@ int pklen;
 int pkidx;
 int16_t cksum_accumulator;
 
-int ledStateGps = LOW;
-int ledStateCommActive = LOW;
-unsigned long previousMillis = 0;
-long blink_interval = 0;
+bool LEDState = false;
 
 void setup() {
   // put your setup code here, to run once:
   pkstate = PREAMBLE_WAIT;
   pklen = 0;
   pkidx = 0;
+  Serial.begin(19200);  // Let the serial class initialize everything
+                        // The internal bus runs at 19200, not 9600 as in the original code...
+  ss.begin(9600);       // Original code didn't start this eitherl...                 
 
-  Serial.begin(19200, SERIAL_8N2);
-  ss.begin(9600);
-  pinMode(LED_GPS_STATE, OUTPUT);
-  pinMode(LED_COMM_ACTIVE, OUTPUT);
+  cbi(*_ucsrb, TXEN0); // then disable the serial transmitter temporarily  -- should probably do this in a non-interruptable atomic way, but hopefully it won't matter.
+  pinMode(TXPIN, TX_INPUT);    // and make it an input until we need it.
+  pinMode(DROPPIN, DROP_INPUT);  // Treat this as an open collector output.
+  digitalWrite(DROPPIN, 0);        // and go ahead and set output to low
+
+  digitalWrite(LEDPIN, 0);        // LED Off
+  pinMode(LEDPIN, OUTPUT);
 }
 
 void loop() {
@@ -54,36 +94,16 @@ void loop() {
     gps.encode(ss.read());
 
   // Feed characters from the serial port into the packet decoder
-  while (Serial.available())
+  while (Serial.available()){
     packet_decode(Serial.read());
-
-  fixQualityInt = getGpsQuality(fixQuality.value());
-
-  // GPS quality LED indication
-  if (fixQualityInt > 0) {
-    // GPS fixed, LED lights continuously
-    digitalWrite(LED_GPS_STATE, true);
-  } else {
-    if (fixQualityInt == -1) {
-      // data from GPS module missing, LED fast blinking
-      blink_interval = 50;
-    } else {
-      // GPS not fixed, LED slow blinking
-      blink_interval = 250;
-    }
-    unsigned long currentMillis = millis();
-
-    if (currentMillis - previousMillis >= blink_interval) {
-      // save the last time you blinked the LED
-      previousMillis = currentMillis;
-
-      ledChangeStateGps();
-    }
   }
 
   // Check if packet is valid
   if (pkstate != VALID) return;
 
+//  LEDState = !LEDState;
+//  digitalWrite(LEDPIN, LEDState);        // toggle LED for each valid packet seen
+  
   // Check that destination is for me
   if (packet[2] != DEV_GPS) {
     pkstate = PREAMBLE_WAIT;
@@ -92,15 +112,17 @@ void loop() {
     return;
   }
 
-  ledChangeStateCommActive();
+  digitalWrite(LEDPIN, 1);        // pulse LED for each packet sent from GPS..
 
   // It's for me! What's the command?
   uint8_t dest = packet[1];
+
+  // pulling command parser code from ForestTree's fork, since BEBrown's original code never even returned a latitude!  (First thing mount asks for on alignment.)
   switch (packet[3])
   {
     case GPS_LINKED:
     case GPS_TIME_VALID:
-      if (fixQualityInt > 0)
+      if (getGpsQuality() > 0)
         pk_send(dest, packet[3], 1);
       else
         pk_send(dest, packet[3], 0);
@@ -153,61 +175,70 @@ void loop() {
       break;
   }
 
+  digitalWrite(LEDPIN, 0);        // pulse LED for each packet sent from GPS..
+
   pkstate = PREAMBLE_WAIT;
   pklen = 0;
   pkidx = 0;
 }
 
-int getGpsQuality(const char* value) {
-  String quality(value);
-  if (quality.length() == 0) {
-    return -1;
-  } else {
+// Handle both GNSS amd GPS format strings
+int getGpsQuality() {
+  String quality(fixQualityGNSS.value());
+  if (quality.length()) {
     return quality.toInt();
   }
+  quality = fixQuality.value();
+  if (quality.length()) {
+    return quality.toInt();
+  }  
+  return -1;
 }
 
 void packet_decode(int8_t c)
 {
+  // Serial.write(c);  // Don't see any need to echo this.
   switch (pkstate)
   {
     case PREAMBLE_WAIT:
-      if (c == 0x3b) {
-        pkstate = LENGTH_WAIT;
-      }
-      break;
+    if (c == 0x3b) {
+      pkstate = LENGTH_WAIT;
+    }
+    break;
 
     case LENGTH_WAIT:
-      if (c < PK_MAX_LEN) {
-        pklen = c;
-        packet[0] = c;
-        pkidx = 1;
-        pkstate = DATA;
-      }
-      else
-        pkstate = PREAMBLE_WAIT;
-      break;
+    if (c < PK_MAX_LEN) {
+      pklen = c;
+      packet[0] = c;
+      pkidx = 1;
+      pkstate = DATA;
+    }
+    else
+      pkstate = PREAMBLE_WAIT;
+    break;
 
     case DATA:
-      packet[pkidx] = c;
-      pkidx++;
-      if (pkidx == pklen + 1)
-        pkstate = CKSUM;
-      break;
+    packet[pkidx] = c;
+    pkidx++;
+    if (pkidx == pklen + 1)
+      pkstate = CKSUM;
+    break;
 
     case CKSUM:
-      if (pk_checksum(c))
-        pkstate = VALID;
-      else
-        pkstate = PREAMBLE_WAIT;
-      break;
+    if (pk_checksum(c))
+      pkstate = VALID;
+    else
+      pkstate = PREAMBLE_WAIT;
+    break;
   }
+  //Serial.write(pkstate);  // What the heck?!!
 }
 
 bool pk_checksum(int8_t target)
 {
   int sum = 0;
   for (int i = 0; i <= pklen; i++) sum += packet[i];
+  //Serial.write(sum & 0xff);
   int8_t chk = (-sum) & 0xff;
   return (target == chk);
 }
@@ -230,7 +261,10 @@ inline int8_t cksum_final()
 // Send a 1-byte response
 void pk_send(uint8_t dest, uint8_t id, uint8_t byte0)
 {
-  delayMicroseconds(500);
+  sbi(*_ucsrb, TXEN0); // enable the serial transmitter  -- should probably do this in a non-interruptable atomic way, but hopefully it won't matter.
+  pinMode(DROPPIN, OUTPUT);  // set drop pin low
+  digitalWrite(DROPPIN, 0);  // Doesn't seem to remember bit setting from earlier...
+
   cksum_init();
   // Send preamble
   Serial.write(0x3b);
@@ -251,12 +285,21 @@ void pk_send(uint8_t dest, uint8_t id, uint8_t byte0)
   Serial.write(byte0);
   // Send checksum
   Serial.write(cksum_final());
+
+  Serial.flush();  // shouldn't return until AFTER the last byte is actually shifted out, not just out of the buffer
+  cbi(*_ucsrb, TXEN0); // disable the serial transmitter  -- hopefully goes back to being an input
+  pinMode(TXPIN, TX_INPUT);    // but it may not be, so here...
+  pinMode(DROPPIN, DROP_INPUT);  // release drop pin since we're done transmitting
+  
 }
 
 // Send a 2-byte response
 void pk_send(uint8_t dest, uint8_t id, uint8_t byte0, uint8_t byte1)
 {
-  delayMicroseconds(500);
+  sbi(*_ucsrb, TXEN0); // enable the serial transmitter  -- should probably do this in a non-interruptable atomic way, but hopefully it won't matter.
+  pinMode(DROPPIN, OUTPUT);  // set drop pin low
+  digitalWrite(DROPPIN, 0);  // Doesn't seem to remember bit setting from earlier...
+
   cksum_init();
   // Send preamble
   Serial.write(0x3b);
@@ -280,12 +323,20 @@ void pk_send(uint8_t dest, uint8_t id, uint8_t byte0, uint8_t byte1)
   Serial.write(byte1);
   // Send checksum
   Serial.write(cksum_final());
+
+  Serial.flush();  // shouldn't return until AFTER the last byte is actually shifted out, not just out of the buffer
+  cbi(*_ucsrb, TXEN0); // disable the serial transmitter  -- hopefully goes back to being an input
+  pinMode(TXPIN, TX_INPUT);    // but it may not be, so here...
+  pinMode(DROPPIN, DROP_INPUT);  // release drop pin since we're done transmitting
 }
 
 // Send a 3-byte response
 void pk_send(uint8_t dest, uint8_t id, uint8_t byte0, uint8_t byte1, uint8_t byte2)
 {
-  delayMicroseconds(500);
+  sbi(*_ucsrb, TXEN0); // enable the serial transmitter  -- should probably do this in a non-interruptable atomic way, but hopefully it won't matter.
+  pinMode(DROPPIN, OUTPUT);  // set drop pin low
+  digitalWrite(DROPPIN, 0);  // Doesn't seem to remember bit setting from earlier...
+
   cksum_init();
   // Send preamble
   Serial.write(0x3b);
@@ -312,22 +363,10 @@ void pk_send(uint8_t dest, uint8_t id, uint8_t byte0, uint8_t byte1, uint8_t byt
   Serial.write(byte2);
   // Send checksum
   Serial.write(cksum_final());
-}
 
-void ledChangeStateGps() {
-  if (ledStateGps == LOW) {
-    ledStateGps = HIGH;
-  } else {
-    ledStateGps = LOW;
-  }
-  digitalWrite(LED_GPS_STATE, ledStateGps);
-}
-
-void ledChangeStateCommActive() {
-  if (ledStateCommActive == LOW) {
-    ledStateCommActive = HIGH;
-  } else {
-    ledStateCommActive = LOW;
-  }
-  digitalWrite(LED_COMM_ACTIVE, ledStateCommActive);
+  Serial.flush();  // shouldn't return until AFTER the last byte is actually shifted out, not just out of the buffer
+  cbi(*_ucsrb, TXEN0); // disable the serial transmitter  -- hopefully goes back to being an input
+  pinMode(TXPIN, TX_INPUT);    // but it may not be, so here...
+  pinMode(DROPPIN, DROP_INPUT);  // release drop pin since we're done transmitting
+  
 }
