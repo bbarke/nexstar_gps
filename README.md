@@ -1,28 +1,26 @@
-# SkySync GPS clone
+# NexStar GPS replacement
 
-A project to build an open source Celestron SkySync GPS compatible unit.
+A project to build a replacement GPS for Celestron's NexStar GPS and CPC telescopes.  Can also be used for creating an AUX port based GPS like the Celestron CN16 or SkySync GPS.
 
-Forked and inspired by fantastic project https://github.com/bebrown/nexstar_gps.
+Forked and inspired by fantastic project https://github.com/bebrown/nexstar_gps and https://github.com/ForestTree/nexstar_gps.
 
-## Goals
-
-Construct a SkySync-compatible unit for attaching a GPS to Celestron mounts that don't already have a GPS, such as the CGEM or AVX.
+This firmware version disables the serial output when not in use allowing the Celestron open collector common serial buss to operate correctly without additional circuitry.  It also implements the busy/drop line missing from other implementations.  Finally, it adds support for GNSS receivers like the Beitian BE-220 or uBlox NEO-7M in additon to standard GPS receivers.
 
 ## Parts
 
 To build this, you will need:
 
-* A GPS module, such as the uBlox NEO-6M. Commonly used by hoobyists for their quadcopters.
+* A GPS module, such as the Beitian BE-220 or the uBlox NEO-6M/7M. Commonly used by hoobyists for their quadcopters.
   Available for about $16.
 
-* A small Arduino, such as the Pro Mini (5V version). Clones available for about $3.
+* A small Arduino, such as the Pro Mini (5V version) or Nano (shown here). Clones available for about $3.
 
 * A TTL serial-to-USB adapter for programming the Arduino (if it does not have an on-board
   USB port already). Available for about $3.
 
 ## Construction
 
-See [schematics diagram](skysync_gps_clone.png). 
+See this [schematic diagram](https://github.com/LordBeowulf/nexstar_gps/blob/master/Celestron%20Arduino%20Nano%20GPS.pdf) for the NexStar GPS module.  See this [schematic diagram](https://github.com/LordBeowulf/nexstar_gps/blob/master/Celestron%20Arduino%20Nano%20GPS%20for%20AUX%20port.pdf) for the AUX port version. 
 
 ## Libraries
 
@@ -32,12 +30,15 @@ Also needed is the SoftwareSerial library, which is built in to the Arduino IDE.
 
 ## Additional info
 
-See this links for more info about Celestron mounts, AUX port, wiring and communication protocol:
+See these links for more info about Celestron mounts, AUX port, wiring and communication protocol:
 
 https://www.nexstarsite.com/download/manuals/NexStarCommunicationProtocolV1.2.zip
 https://sites.google.com/site/wayneholder/nexstar-direct-telescope-mount-control
 https://www.nexstarsite.com/download/CelestronAS_PCinterface.pdf
 http://www.paquettefamily.ca/nexstar/NexStar_AUX_Commands_10.pdf
+
+This thread on Cloudy Nights details the development history of various versions.
+https://www.cloudynights.com/topic/567421-homebrew-celestron-compatible-gps/
 
 ## Attention
 
