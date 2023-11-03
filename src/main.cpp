@@ -7,6 +7,10 @@
 #include "define.h"
 #include "oled.h"
 
+#include <U8g2lib.h>
+#include <SPI.h>
+#include <Wire.h>
+
 #define GPSRXPIN 2
 #define GPSTXPIN 3
 
@@ -71,6 +75,9 @@ bool LEDState = false;
 
 Oled oled;
 
+// U8G2_SSD1306_128X32_UNIVISION_1_HW_I2C u8g2(/*rotation*/ U8G2_R0, /*clock*/ A5, /*data*/ A4);
+
+
 //Declare methods so I don't have to reorder the file
 int getGpsQuality();
 void packet_decode(int8_t c);
@@ -101,23 +108,40 @@ void setup() {
   digitalWrite(LEDPIN, 0);      // LED Off
   pinMode(LEDPIN, OUTPUT);
 
+  oled.begin();
   oled.updateTime(gps);
   oled.updateSatellite(gps);
   oled.updateLatLng(gps);
+  // u8g2.begin();
+  // u8g2.firstPage();
+  // do {
+  //   u8g2.setFont(u8g2_font_ncenB14_tr);
+  //   u8g2.drawStr(0,24,"Hello World!");
+  //   Serial.println("buffer");
+  // } while ( u8g2.nextPage() );
+  
 }
 
 void loop() {
   
+  bool updated = false;
   if (gps.time.isUpdated()) {
+    updated = true;
     oled.updateTime(gps);
   }
 
   if (gps.satellites.isUpdated()) {
+    updated = true;
     oled.updateSatellite(gps);
   }
 
   if (gps.location.isUpdated()) {
+    updated = true;
     oled.updateLatLng(gps);
+  }
+
+  if (updated) {
+    oled.writeToScreen();
   }
 
   // Feed characters from the GPS module into TinyGPS

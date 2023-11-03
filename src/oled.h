@@ -1,19 +1,22 @@
-// MyClass.h
-// #ifndef OLED_H
-// #define OLED_H
+#ifndef Oled_H
+#define Oled_H
 #include <TinyGPSPlus.h>
+#include <Arduino.h>
+#include <U8g2lib.h>
 
 
 class Oled {
 public:
-    Oled();  // Constructor
+    void begin();
     void updateOled();
     void updateTime(TinyGPSPlus gps);
     void updateSatellite(TinyGPSPlus gps);
 
     void updateLatLng(TinyGPSPlus gps);
 
-private:
-    void writeToScreen(int row, char* line);
+// private:
+    void writeToScreen();
     bool isLocked(TinyGPSPlus gps);
 };
+
+#endif
