@@ -6,10 +6,7 @@
 
 #include "define.h"
 #include "oled.h"
-
-#include <U8g2lib.h>
-#include <SPI.h>
-#include <Wire.h>
+#include "scope_temperature.h"
 
 #define GPSRXPIN 2
 #define GPSTXPIN 3
@@ -32,6 +29,8 @@
 
 TinyGPSPlus gps;
 SoftwareSerial ss(GPSRXPIN, GPSTXPIN);
+
+unsigned long lastTimeUpdate = 1000;
 
 /*
  * Sample output from my BN-220 GNSS module.  Note the missing GPGGA/GPGSA replaced by GNGGA/GNGSA!
@@ -74,9 +73,7 @@ int16_t cksum_accumulator;
 bool LEDState = false;
 
 Oled oled;
-
-// U8G2_SSD1306_128X32_UNIVISION_1_HW_I2C u8g2(/*rotation*/ U8G2_R0, /*clock*/ A5, /*data*/ A4);
-
+ScopeTemperature scopeTemp;
 
 //Declare methods so I don't have to reorder the file
 int getGpsQuality();
@@ -112,36 +109,41 @@ void setup() {
   oled.updateTime(gps);
   oled.updateSatellite(gps);
   oled.updateLatLng(gps);
-  // u8g2.begin();
-  // u8g2.firstPage();
-  // do {
-  //   u8g2.setFont(u8g2_font_ncenB14_tr);
-  //   u8g2.drawStr(0,24,"Hello World!");
-  //   Serial.println("buffer");
-  // } while ( u8g2.nextPage() );
+  scopeTemp.begin();
+  oled.updateTemperature(scopeTemp);
   
 }
 
 void loop() {
-  
-  bool updated = false;
-  if (gps.time.isUpdated()) {
-    updated = true;
-    oled.updateTime(gps);
-  }
 
-  if (gps.satellites.isUpdated()) {
-    updated = true;
-    oled.updateSatellite(gps);
-  }
+  int interval = 999;
+  if (millis() > (lastTimeUpdate + interval)) {  
+    bool updated = false;
+    lastTimeUpdate = millis();
+    if (gps.time.isValid()) {
+      updated = true;
+      oled.updateTime(gps);
+    }
 
-  if (gps.location.isUpdated()) {
-    updated = true;
-    oled.updateLatLng(gps);
-  }
+    if (gps.satellites.isValid()) {
+      updated = true;
+      oled.updateSatellite(gps);
+    }
 
-  if (updated) {
-    oled.writeToScreen();
+    if (gps.location.isUpdated()) {
+      updated = true;
+      oled.updateLatLng(gps);
+    }
+
+    if (scopeTemp.update()) {
+      updated = true;
+    }
+
+    if (updated) {
+      digitalWrite(LEDPIN, 1);
+      oled.writeToScreen();
+      digitalWrite(LEDPIN, 0);
+    }
   }
 
   // Feed characters from the GPS module into TinyGPS

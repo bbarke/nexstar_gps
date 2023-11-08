@@ -1,53 +1,71 @@
 #include "oled.h"
 
-const int UTC_ROW = 7;
-const int SAT_ROW = 15;
-const int LAT_LNG_ROW = 23;
-char time[25] = "Loading";
+char time[40] = "Loading";
 char sats[40];
-char latlng[25];
+char latlng[40];
+char tempHumidity[40];
 
 
-// Temperature? Humidity? Altitude?
-
-
-
-// U8G2_SSD1305_128X32_NONAME_1_SW_I2C(/*rotation*/ U8G2_R0, /*clock*/ D1, /*data*/ D2) [page buffer, size = 128 bytes]
-// [full framebuffer, size = 512 bytes]
-// U8G2_SSD1305_128X32_NONAME_1_HW_I2C u8g2(/*rotation*/ U8G2_R0, /*clock*/ A5, /*data*/ A4);
-// U8G2_SSD1306_128X32_UNIVISION_1_HW_I2C u8g2(/*rotation*/ U8G2_R0, /*clock*/ A5, /*data*/ A4);
 U8G2_SSD1306_128X32_UNIVISION_1_HW_I2C u8g2(/*rotation*/ U8G2_R0);
-// U8X8_SSD1306_128X32_UNIVISION_HW_I2C u8g2
 
 void Oled::begin() {
     u8g2.begin();
-    // writeToScreen();
+    u8g2.firstPage();
+    do {
+      u8g2.setFont(u8g2_font_mozart_nbp_tr);
+      u8g2.drawStr(0,24,"Hello, Brent!");
+    } while ( u8g2.nextPage() );
 }
 
 void Oled::updateTime(TinyGPSPlus gps) {
   memset(time, 0, sizeof(time));
-  snprintf(time, sizeof(time),
-            ((gps.satellites.value() > 0) ? "%02d/%02d/%02d UTC %02d:%02d:%02d"
-                                          : "--/--/-- UTC --:--:--"),
-            gps.date.month(), gps.date.day(), gps.date.year() % 100,
-            gps.time.hour(), gps.time.minute(), gps.time.second());
+
+  // snprintf(time, sizeof(time),
+  //           ((gps.satellites.value() > 0) ? "%02d/%02d/%02d UTC %02d:%02d:%02d"
+  //                                         : "--/--/-- UTC --:--:--"),
+  //           gps.date.month(), gps.date.day(), gps.date.year() % 100,
+  //           gps.time.hour(), gps.time.minute(), gps.time.second());
+
+  if (!isLocked(gps)) {
+    snprintf(time, sizeof(time), "--/--/-- UTC --:--:--");
+    return;
+  }
+  
+  if (timeStatus() == timeNotSet || gps.time.age() < 1998) {
+    setTime(gps.time.hour(), gps.time.minute(), gps.time.second(), gps.date.day(), gps.date.month(), gps.date.year());
+    adjustTime(gps.time.age() / 1000);
+  }
+
+  uint8_t timestat;
+  if (timeStatus() == timeSet) {
+    timestat = 1;
+  }
+  
+  if (timeStatus() == timeNotSet) {
+    timestat = 2;
+  }
+
+  if (timeStatus() == timeNeedsSync) {
+    timestat = 3;
+  }
+  
+  memset(time, 0, sizeof(time));
+  snprintf(time, sizeof(time), "%02d/%02d/%02d %02d:%02d:%02d %d",
+            month(), day(), year() % 100,
+            hour(), minute(), second(), timestat);
 }
 
 void Oled::updateSatellite(TinyGPSPlus gps) {
   memset(sats, 0, sizeof(sats));
   if (isLocked(gps)){
     char altBuff[10];
-    char satBuff[4];
-    dtostrf(gps.altitude.isValid() ? gps.altitude.feet() : 0, 5, 0, altBuff);
+    char satBuff[5];
+    dtostrf(gps.altitude.isValid() ? gps.time.age() : 0, 5, 0, altBuff);
     dtostrf(gps.satellites.isValid() ? gps.satellites.value() : 0, 2, 0, satBuff);
     snprintf(sats, sizeof(sats),
             "Sats: %s Alt: %s ",
             satBuff, 
             altBuff);
-    // String tmp = "Sats: " + 500;
-    // String tmp = "Sats: "
-    // tmp.toCharArray(sats, sizeof(sats));
-    
   } else {
     snprintf(sats, sizeof(sats),
             "%s",
@@ -69,22 +87,34 @@ void Oled::updateLatLng(TinyGPSPlus gps) {
   }
 }
 
+void Oled::updateTemperature(ScopeTemperature scopeTemp) {
+  char tmpH[10];
+  char tmpT[10];
+  char tmpD[10];
+  dtostrf(scopeTemp.getHumidity(), 2, 0, tmpH);
+  dtostrf(scopeTemp.getTemperature(), 2, 0, tmpT);
+  dtostrf(scopeTemp.getDewpoint(), 2, 0, tmpD);
+
+  char degree = '\xb0';
+  char percent = '\x25';
+  sprintf(tempHumidity, "%s%cF %s%c dew %s%cF", tmpT, degree, tmpH, percent, tmpD, degree);
+}
+
 void Oled::writeToScreen() {
-    // u8g2.clearBuffer();
-    // u8g2.setFont(u8g2_font_squeezed_b7_tn);
-    // u8g2.drawStr(0, row, "hi");
-    // u8g2.sendBuffer();
-    int8_t height = u8g2.getDisplayHeight() / 4;
+  if (millis() < 2000) {
+    return;
+  }
 
-    u8g2.firstPage();
-    do {
-      u8g2.setFont(u8g2_font_mozart_nbp_tr);
-      u8g2.drawStr(0, 8, time);
-      u8g2.drawStr(0, 16, sats);
-      // u8g2.drawStr(5, 16, String(gps.altitude.isValid() ? gps.altitude.feet() : 100, 1).c_str());
-      u8g2.drawStr(0, 24, latlng);
+  u8g2.firstPage();
+  do {
+    u8g2.setFont(u8g2_font_mozart_nbp_tr);
+    u8g2.drawStr(0, 8, time);
+    u8g2.drawStr(0, 16, sats);
+    u8g2.drawStr(0, 24, latlng);
+    u8g2.drawStr(0, 32, tempHumidity);
+    // u8g2.drawBox(0, 0, 128, 32);
 
-    } while ( u8g2.nextPage() );
+  } while ( u8g2.nextPage() );
 }
 
 bool Oled::isLocked(TinyGPSPlus gps) {
