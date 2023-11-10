@@ -94,11 +94,11 @@ void setup() {
   pkidx = 0;
   Serial.begin(19200);  // Let the serial class initialize everything
                         // The internal bus runs at 19200, not 9600 as in the original code...
-  ss.begin(38400);      // Original code didn't start this either...
+  ss.begin(9600);       // Original code didn't start this either...
                         // The BE-220 gps module I bought has a default baud of 38400
 
-  cbi(*_ucsrb, TXEN0);          // then disable the serial transmitter temporarily  -- should probably do this in a non-interruptable atomic way, but hopefully it won't matter.
-  pinMode(TXPIN, TX_INPUT);     // and make it an input until we need it.
+  // cbi(*_ucsrb, TXEN0);          // then disable the serial transmitter temporarily  -- should probably do this in a non-interruptable atomic way, but hopefully it won't matter.
+  // pinMode(TXPIN, TX_INPUT);     // and make it an input until we need it.
   pinMode(DROPPIN, DROP_INPUT); // Treat this as an open collector output.
   digitalWrite(DROPPIN, 0);     // and go ahead and set output to low
 
@@ -111,48 +111,57 @@ void setup() {
   oled.updateLatLng(gps);
   scopeTemp.begin();
   oled.updateTemperature(scopeTemp);
-  
 }
 
 void loop() {
-
-  int interval = 999;
-  if (millis() > (lastTimeUpdate + interval)) {  
-    bool updated = false;
-    lastTimeUpdate = millis();
-    if (gps.time.isValid()) {
-      updated = true;
-      oled.updateTime(gps);
-    }
-
-    if (gps.satellites.isValid()) {
-      updated = true;
-      oled.updateSatellite(gps);
-    }
-
-    if (gps.location.isUpdated()) {
-      updated = true;
-      oled.updateLatLng(gps);
-    }
-
-    if (scopeTemp.update()) {
-      updated = true;
-    }
-
-    if (updated) {
+  // Feed characters from the GPS module into TinyGPS
+  while (ss.available()) {
+    char c = ss.read();
+    // Serial.print(c);
+    if (gps.encode(c)) {
       digitalWrite(LEDPIN, 1);
-      oled.writeToScreen();
-      digitalWrite(LEDPIN, 0);
+      // Serial.println();
+      int interval = 0;
+      bool updated = false;
+      if (gps.time.isUpdated()) {
+        updated = true;
+        oled.updateTime(gps);
+      }
+
+      if (gps.satellites.isValid()) {
+        updated = true;
+        oled.updateSatellite(gps);
+      }
+
+      if (gps.location.isUpdated()) {
+        updated = true;
+        oled.updateLatLng(gps);
+      }
+
+      if (scopeTemp.update()) {
+        updated = true;
+      }
+
+      if (scopeTemp.update()) {
+        oled.updateTemperature(scopeTemp);
+        updated = true;
+      }
+
+      if (updated) {
+        oled.writeToScreen();
+      }
     }
+      digitalWrite(LEDPIN, 0);
   }
 
-  // Feed characters from the GPS module into TinyGPS
-  while (ss.available())
-    gps.encode(ss.read());
+  if (true) {
+    return;
+  }
+    
 
   // Feed characters from the serial port into the packet decodergit
   while (Serial.available()){
-    packet_decode(Serial.read());
+    // packet_decode(Serial.read());
   }
 
   // Check if packet is valid

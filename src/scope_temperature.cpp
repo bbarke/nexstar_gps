@@ -2,51 +2,64 @@
 
 Adafruit_BME280 bme;
 
-unsigned status;
-float humidity;
-float temp;
+bool status = false;
+uint8_t humidity;
+int temp;
 
 int dealy = 1000;
 unsigned long lastReadMillis = 1000;
+// #define WIRE Wire
 
 void ScopeTemperature::begin() {
-    status = bme.begin();
+
+    while (!status) {
+        status = bme.begin(BME280_ADDRESS_ALTERNATE);
+        Serial.println(status);
+    }
 }
 
-float ScopeTemperature::getHumidity() {
+uint8_t ScopeTemperature::getHumidity() {
     update();
     return humidity;
 }
 
-float ScopeTemperature::getTemperature() {
+int ScopeTemperature::getTemperature() {
     update();
     return cToF(temp);
 }
 
-float ScopeTemperature::getDewpoint() {
+int ScopeTemperature::getDewpoint() {
     update();
-    float k;
-     k = log(humidity/100) + (17.62 * temp) / (243.12 + temp);
-    return cToF(243.12 * k / (17.62 - k));
+    // float k;
+    // k = log(humidity/100) + (17.62 * temp) / (243.12 + temp);
+    // return cToF(243.12 * k / (17.62 - k));
+    return 1;
 }
 
 
 bool ScopeTemperature::update() {
-    if (!status || millis() <= 2000) {
-        humidity = 30;
-        temp = 0;
+    if (status == 0 || millis() <= 2000) {
+        Serial.print("Bad temp status ");
+        Serial.println(status);
+        Serial.println(millis());
+        humidity = 1;
+        temp = -2;
         return false;
     }
 
     if (millis() > lastReadMillis + 2000) {
-        humidity = bme.readHumidity();
-        temp = bme.readTemperature();
+        Serial.println("pulled details");
+        // humidity = bme.readHumidity();
+        temp = bme.getTemperatureSensor();
+        temp = 5;
         lastReadMillis = millis();
         return true;
     }
+    Serial.println("Not ready");
     return false;
 }
 
-float ScopeTemperature::cToF(float c) {
-    return (c*1.8)+32;
+int ScopeTemperature::cToF(int c) {
+    // return (c*1.8)+32;
+    return c;
 }
