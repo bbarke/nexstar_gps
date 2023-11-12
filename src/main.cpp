@@ -115,20 +115,22 @@ void setup() {
 
 void loop() {
   // Feed characters from the GPS module into TinyGPS
+  bool updated = false;
+
   while (ss.available()) {
     char c = ss.read();
     // Serial.print(c);
+
     if (gps.encode(c)) {
       digitalWrite(LEDPIN, 1);
       // Serial.println();
       int interval = 0;
-      bool updated = false;
       if (gps.time.isUpdated()) {
         updated = true;
         oled.updateTime(gps);
       }
 
-      if (gps.satellites.isValid()) {
+      if (gps.satellites.isUpdated()) {
         updated = true;
         oled.updateSatellite(gps);
       }
@@ -141,17 +143,17 @@ void loop() {
       if (scopeTemp.update()) {
         updated = true;
       }
-
-      if (scopeTemp.update()) {
-        oled.updateTemperature(scopeTemp);
-        updated = true;
-      }
-
-      if (updated) {
-        oled.writeToScreen();
-      }
     }
       digitalWrite(LEDPIN, 0);
+  }
+
+  if (scopeTemp.update()) {
+    oled.updateTemperature(scopeTemp);
+    updated = true;
+  }
+
+  if (updated) {
+    oled.writeToScreen();
   }
 
   if (true) {

@@ -5,21 +5,21 @@ char sats[40];
 char latlng[40];
 char tempHumidity[40];
 
+#define I2C_ADDRESS 0x3C
 
-U8G2_SSD1306_128X32_UNIVISION_1_HW_I2C u8g2(/*rotation*/ U8G2_R0);
-const uint8_t *font = u8g2_font_mozart_nbp_tf;
+SSD1306AsciiAvrI2c screen;
+bool firstClear = false;
 
 void Oled::begin() {
-    u8g2.begin();
-    u8g2.firstPage();
-    do {
-      u8g2.setFont(font);
-      u8g2.drawStr(12,20,"Hello, Brent!");
-    } while ( u8g2.nextPage() );
+  screen.begin(&Adafruit128x32, I2C_ADDRESS);
+  screen.setFont(Cooper19);
+  screen.print("Hello, Brent!");
+  screen.setFont(Stang5x7);
 }
 
 void Oled::updateTime(TinyGPSPlus gps) {
   memset(time, 0, sizeof(time));
+  Serial.println("Update time");
 
   if (!isLocked(gps)) {
     snprintf(time, sizeof(time), "--/--/-- UTC --:--:--");
@@ -33,6 +33,8 @@ void Oled::updateTime(TinyGPSPlus gps) {
 
 void Oled::updateSatellite(TinyGPSPlus gps) {
   memset(sats, 0, sizeof(sats));
+  Serial.println("Update sats");
+
   if (isLocked(gps)){
     char altBuff[10];
     char satBuff[5];
@@ -45,19 +47,25 @@ void Oled::updateSatellite(TinyGPSPlus gps) {
   } else {
     snprintf(sats, sizeof(sats),
             "%s",
-            "Acquiring sats... ");
+            "Acquiring satellites... ");
   }
 }
 
 void Oled::updateLatLng(TinyGPSPlus gps) {
   memset(latlng, 0, sizeof(latlng));
+  Serial.println("Update latlng");
   
   if (isLocked(gps)) {
     char latbuff[15];
-    dtostrf(fabs(gps.location.lng()), 5, 5, latbuff);
-    sprintf(latlng, "Lng: %c%s", 
+    char lngbuff[15];
+                 
+    dtostrf(fabs(gps.location.lat()), 5, 5, latbuff);
+    dtostrf(fabs(gps.location.lng()), 5, 5, lngbuff);
+    sprintf(latlng, "%c%s %c%s", 
+                    ((gps.location.lat() < 0.0) ? 'S' : 'N'),
+                    latbuff,
                     ((gps.location.lng() < 0.0) ? 'W' : 'E'),
-                    latbuff);
+                    lngbuff);
   } else {
     sprintf(latlng, "");
   }
@@ -68,12 +76,11 @@ void Oled::updateTemperature(ScopeTemperature scopeTemp) {
   char tmpT[10];
   char tmpD[10];
   dtostrf(scopeTemp.getHumidity(), 2, 0, tmpH);
-  dtostrf(scopeTemp.getTemperature(), 2, 0, tmpT);
-  dtostrf(scopeTemp.getDewpoint(), 2, 0, tmpD);
+  dtostrf(scopeTemp.getTemperature(), 3, 0, tmpT);
+  dtostrf(scopeTemp.getDewpoint(), 3, 0, tmpD);
 
-  char degree = '\xb0';
-  char percent = '\x25';
-  sprintf(tempHumidity, "%s%cF %s%c dew %s%cF", tmpT, degree, tmpH, percent, tmpD, degree);
+  char percent = '%';
+  sprintf(tempHumidity, "%sF %s%cH dew%sF", tmpT, tmpH, percent, tmpD);
 }
 
 void Oled::writeToScreen() {
@@ -81,15 +88,16 @@ void Oled::writeToScreen() {
     return;
   }
 
-  u8g2.firstPage();
-  do {
-    u8g2.setFont(font);
-    u8g2.drawStr(0, 8, time);
-    u8g2.drawStr(0, 16, sats);
-    u8g2.drawStr(0, 24, latlng);
-    u8g2.drawStr(0, 32, tempHumidity);
+  if (!firstClear) {
+    firstClear = true;
+    screen.clear();
+  }
 
-  } while ( u8g2.nextPage() );
+  screen.home();
+  screen.println(time);
+  screen.println(sats);
+  screen.println(latlng);
+  screen.println(tempHumidity);
 }
 
 bool Oled::isLocked(TinyGPSPlus gps) {

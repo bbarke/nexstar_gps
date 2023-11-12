@@ -2,9 +2,10 @@
 #define Oled_H
 #include <TinyGPSPlus.h>
 #include <Arduino.h>
-#include <U8g2lib.h>
+#include <SPI.h>
+#include "SSD1306Ascii.h"
+#include "SSD1306AsciiAvrI2c.h"
 #include "scope_temperature.h"
-#include <TimeLib.h>
 
 class Oled {
 public:

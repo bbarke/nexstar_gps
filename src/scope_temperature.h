@@ -10,12 +10,12 @@ class ScopeTemperature {
 public:
     void begin();
     uint8_t getHumidity();
-    int getTemperature();
-    int getDewpoint();
+    float getTemperature();
+    float getDewpoint();
     bool update();
 
 private:
-    int cToF(int c);
+    float cToF(float c);
 
 };
 
