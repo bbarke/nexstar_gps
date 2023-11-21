@@ -97,8 +97,8 @@ void setup() {
   ss.begin(9600);       // Original code didn't start this either...
                         // The BE-220 gps module I bought has a default baud of 38400
 
-  // cbi(*_ucsrb, TXEN0);          // then disable the serial transmitter temporarily  -- should probably do this in a non-interruptable atomic way, but hopefully it won't matter.
-  // pinMode(TXPIN, TX_INPUT);     // and make it an input until we need it.
+  cbi(*_ucsrb, TXEN0);          // then disable the serial transmitter temporarily  -- should probably do this in a non-interruptable atomic way, but hopefully it won't matter.
+  pinMode(TXPIN, TX_INPUT);     // and make it an input until we need it.
   pinMode(DROPPIN, DROP_INPUT); // Treat this as an open collector output.
   digitalWrite(DROPPIN, 0);     // and go ahead and set output to low
 
@@ -119,11 +119,9 @@ void loop() {
 
   while (ss.available()) {
     char c = ss.read();
-    // Serial.print(c);
 
     if (gps.encode(c)) {
       digitalWrite(LEDPIN, 1);
-      // Serial.println();
       int interval = 0;
       if (gps.time.isUpdated()) {
         updated = true;
@@ -156,21 +154,16 @@ void loop() {
     oled.writeToScreen();
   }
 
-  if (true) {
-    return;
-  }
-    
-
   // Feed characters from the serial port into the packet decodergit
   while (Serial.available()){
-    // packet_decode(Serial.read());
+    packet_decode(Serial.read());
   }
 
   // Check if packet is valid
   if (pkstate != VALID) return;
 
-//  LEDState = !LEDState;
-//  digitalWrite(LEDPIN, LEDState);        // toggle LED for each valid packet seen
+  LEDState = !LEDState;
+  digitalWrite(LEDPIN, LEDState);        // toggle LED for each valid packet seen
   
   // Check that destination is for me
   if (packet[2] != DEV_GPS) {
@@ -186,8 +179,7 @@ void loop() {
   uint8_t dest = packet[1];
 
   // pulling command parser code from ForestTree's fork, since BEBrown's original code never even returned a latitude!  (First thing mount asks for on alignment.)
-  switch (packet[3])
-  {
+  switch (packet[3]) {
     case GPS_LINKED:
     case GPS_TIME_VALID:
       if (getGpsQuality() > 0)
@@ -263,8 +255,7 @@ int getGpsQuality() {
   return -1;
 }
 
-void packet_decode(int8_t c)
-{
+void packet_decode(int8_t c) {
   // Serial.write(c);  // Don't see any need to echo this.
   switch (pkstate)
   {
@@ -302,8 +293,7 @@ void packet_decode(int8_t c)
   //Serial.write(pkstate);  // What the heck?!!
 }
 
-bool pk_checksum(int8_t target)
-{
+bool pk_checksum(int8_t target) {
   int sum = 0;
   for (int i = 0; i <= pklen; i++) sum += packet[i];
   //Serial.write(sum & 0xff);
@@ -311,18 +301,15 @@ bool pk_checksum(int8_t target)
   return (target == chk);
 }
 
-inline void cksum_init()
-{
+inline void cksum_init() {
   cksum_accumulator = 0;
 }
 
-inline void cksum_update(uint8_t b)
-{
+inline void cksum_update(uint8_t b) {
   cksum_accumulator += b;
 }
 
-inline int8_t cksum_final()
-{
+inline int8_t cksum_final() {
   return (-cksum_accumulator) & 0xff;
 }
 

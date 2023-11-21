@@ -14,7 +14,6 @@ void ScopeTemperature::begin() {
 
     while (!status) {
         status = bme.begin(BME280_ADDRESS_ALTERNATE);
-        Serial.println(status);
     }
 }
 
@@ -37,15 +36,11 @@ float ScopeTemperature::getDewpoint() {
 bool ScopeTemperature::update() {
     // Wait a bit before we pull the temperature
     if (status == 0 || millis() <= 2000) {
-        Serial.print("Bad temp status ");
-        Serial.println(status);
-        Serial.println(millis());
         return false;
     }
 
     // Only update the temperature every 5 seconds
     if (millis() > lastReadMillis + 5000) {
-        Serial.println("pulled details");
         humidity = bme.readHumidity();
         temp = bme.readTemperature();
         lastReadMillis = millis();

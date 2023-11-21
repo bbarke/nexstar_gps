@@ -19,7 +19,6 @@ void Oled::begin() {
 
 void Oled::updateTime(TinyGPSPlus gps) {
   memset(time, 0, sizeof(time));
-  Serial.println("Update time");
 
   if (!isLocked(gps)) {
     snprintf(time, sizeof(time), "--/--/-- UTC --:--:--");
@@ -33,7 +32,6 @@ void Oled::updateTime(TinyGPSPlus gps) {
 
 void Oled::updateSatellite(TinyGPSPlus gps) {
   memset(sats, 0, sizeof(sats));
-  Serial.println("Update sats");
 
   if (isLocked(gps)){
     char altBuff[10];
@@ -53,7 +51,6 @@ void Oled::updateSatellite(TinyGPSPlus gps) {
 
 void Oled::updateLatLng(TinyGPSPlus gps) {
   memset(latlng, 0, sizeof(latlng));
-  Serial.println("Update latlng");
   
   if (isLocked(gps)) {
     char latbuff[15];
